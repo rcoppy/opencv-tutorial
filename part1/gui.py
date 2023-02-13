@@ -47,6 +47,10 @@ threshold_lower = StringVar()
 threshold_upper = StringVar()
 blur_kernel = StringVar()
 
+# https://stackoverflow.com/questions/50508452/implementing-photoshop-high-pass-filter-hpf-in-opencv
+def highpass(img, sigma):
+    return img - cv.GaussianBlur(img, (0,0), sigma) + 127
+
 def convert_grayscale_cv_to_tk(frame): 
     copy = np.copy(frame)
     cv.cvtColor(copy, cv.COLOR_GRAY2BGR)
@@ -73,16 +77,23 @@ def convert_cv_to_tk(frame):
         Image.fromarray(copy)
     )
 
-def process_frame(frame): 
+def process_frame(frame):
+    original = np.copy(frame) 
     kernel = int(float(blur_kernel.get()))
-    blur = cv.blur(frame, (kernel, kernel))
-    grayscale = cv.cvtColor(blur, cv.COLOR_BGR2GRAY)
-    edges = cv.Canny(grayscale, int(float(threshold_lower.get())), int(float(threshold_upper.get())))
-    cv.imshow('processed', edges)
+
+    hp = highpass(frame, 3)
+    cv.imshow("highpass", hp)
+
+    blur = cv.blur(cv.divide(original, frame), (kernel, kernel))
+    
+    # grayscale = cv.cvtColor(blur, cv.COLOR_BGR2GRAY)
+    # edges = cv.Canny(grayscale, int(float(threshold_lower.get())), int(float(threshold_upper.get())))
+    
+    #cv.imshow('processed', edges)
 
     print("frame processed")
 
-    return edges
+    return blur
 
     # cv.imshow('capture', frame)
 
@@ -142,7 +153,7 @@ def update_camera_capture_label(*args):
     try: 
         cv.imshow("raw preprocessed on update", cv_raw_frame)
         processed_frame = process_frame(cv_raw_frame)
-        new_image = convert_grayscale_cv_to_tk(processed_frame)
+        new_image = convert_cv_to_tk(processed_frame)
         camera_capture.configure(image=new_image)
         camera_capture.image = new_image 
     except ValueError:
