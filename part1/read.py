@@ -18,9 +18,12 @@ while True:
     if isTrue:
         coords = (int(frame.shape[1] * 0.2), int(frame.shape[0] * 0.75))
 
-        cv.putText(frame, 'Hello, world', coords, font, 1.0, font_color, font_thickness)
+        grayscale = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        edges = cv.Canny(grayscale, 125, 225)
 
-        cv.imshow('Video', frame)
+        cv.putText(edges, 'Hello, world', coords, font, 1.0, font_color, font_thickness)
+
+        cv.imshow('Video', edges)
 
     if cv.waitKey(0) & 0xFF == ord('q'): 
         break
