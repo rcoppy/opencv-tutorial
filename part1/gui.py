@@ -9,7 +9,7 @@ import cv2 as cv
 from PIL import Image, ImageTk
 
 capture_max_width =  512
-capture_max_height = 512
+capture_max_height = 400
 is_output_grayscale = True
 
 blank_buffer = np.zeros((255, 255, 3), dtype='uint8')
@@ -65,12 +65,40 @@ def handle_capture_button(*args):
     except ValueError:
         pass    
 
+def convert_cv_to_tk(frame):
+    copy = np.copy(frame)
+
+    # swap the red and blue channels
+    # https://stackoverflow.com/questions/38538952/how-to-swap-blue-and-red-channel-in-an-image-using-opencv
+    red = copy[:,:,2].copy()
+    blue = copy[:,:,0].copy()
+
+    copy[:,:,0] = red
+    copy[:,:,2] = blue
+    
+    return ImageTk.PhotoImage(
+        Image.fromarray(copy)
+    )
+
 photo_button = ttk.Button(mainframe, text="new capture", command=handle_capture_button)
-photo_button.grid(column=0, row=8, sticky='we')
+photo_button.grid(column=0, row=5, sticky='we')
 
 camera_capture = ttk.Label(mainframe, image=label_image)
-camera_capture.grid(column=0, row=7, sticky='we')
+camera_capture.grid(column=0, row=4, sticky='we')
 
+
+small_image = convert_cv_to_tk(cv.resize(blank_buffer, (96, 64)))
+intermediate_original = ttk.Label(mainframe, image=small_image)
+intermediate_original.grid(column=3, row=1, sticky='ns')
+
+intermediate_morphed = ttk.Label(mainframe, image=small_image)
+intermediate_morphed.grid(column=3, row=2, sticky='ns')
+
+intermediate_outline = ttk.Label(mainframe, image=small_image)
+intermediate_outline.grid(column=3, row=3, sticky='ns')
+
+intermediate_composite = ttk.Label(mainframe, image=small_image)
+intermediate_composite.grid(column=3, row=4, sticky='ns')
 
 # widgets 
 
@@ -111,20 +139,28 @@ def extract_red_from_frame(frame):
 
     return red
 
-def convert_cv_to_tk(frame):
-    copy = np.copy(frame)
 
-    # swap the red and blue channels
-    # https://stackoverflow.com/questions/38538952/how-to-swap-blue-and-red-channel-in-an-image-using-opencv
-    red = copy[:,:,2].copy()
-    blue = copy[:,:,0].copy()
 
-    copy[:,:,0] = red
-    copy[:,:,2] = blue
+def update_intermediates(original, morphed, outline, composite):
+    global intermediate_original, intermediate_morphed, intermediate_outline, intermediate_composite
     
-    return ImageTk.PhotoImage(
-        Image.fromarray(copy)
-    )
+    print("updating intermediates")
+    
+    og = convert_cv_to_tk(constrain_image_to_max_res(original, 96, 64))
+    intermediate_original.configure(image=og)
+    intermediate_original.image = og
+
+    mo = convert_grayscale_cv_to_tk(constrain_image_to_max_res(morphed, 96, 64))
+    intermediate_morphed.configure(image=mo)
+    intermediate_morphed.image = mo
+
+    ou = convert_grayscale_cv_to_tk(constrain_image_to_max_res(outline, 96, 64))
+    intermediate_outline.configure(image=ou)
+    intermediate_outline.image = ou
+
+    co = convert_grayscale_cv_to_tk(constrain_image_to_max_res(composite, 96, 64))
+    intermediate_composite.configure(image=co)
+    intermediate_composite.image = co
 
 def process_frame(frame):
     copy = np.copy(frame) 
@@ -162,27 +198,31 @@ def process_frame(frame):
     morphed = cv.dilate(morphed, morph_kernel)
     morphed = cv.equalizeHist(morphed)
 
-    contrast = int(float(threshold_lower.get()))
-    brightness = int(float(threshold_upper.get()))
+    # contrast = int(float(threshold_lower.get()))
+    # brightness = int(float(threshold_upper.get()))
 
     morphed = cv.convertScaleAbs(morphed, alpha=-1, beta=55)
     morphed = cv.equalizeHist(morphed)
 
     # ret, outline = cv.threshold(morphed, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
-    outline = cv.Canny(morphed, 64, 250)
+    outline = cv.Canny(lowpass(morphed), 64, 250)
     outline = cv.dilate(outline, 2*morph_kernel)
     outline = cv.GaussianBlur(outline, (9, 9), sigmaX=3, sigmaY=3)
 
-    cv.imshow('outline', outline)
-    cv.imshow('morphed', morphed)
+    # cv.imshow('outline', outline)
+    # cv.imshow('morphed', morphed)
     
-    maybe_inverted = morphed if is_background_dark.get() == 1 else cv.bitwise_not(morphed)
-    maybe_inverted_outline = cv.bitwise_not(outline) if is_background_dark.get() == 0 else outline
+    maybe_inverted = morphed if is_background_dark.get() == 0 else cv.bitwise_not(morphed)
 
-    composite = lowpass(np.uint8(cv.subtract(maybe_inverted, maybe_inverted_outline)))
-    composite = cv.convertScaleAbs(composite, alpha=contrast, beta=brightness)
+    composite = cv.equalizeHist(lowpass(np.uint8(
+        cv.subtract(maybe_inverted, outline) if is_background_dark.get() == 0
+        else cv.add(maybe_inverted, outline)
+        )))
+    composite = cv.convertScaleAbs(composite, alpha=-1, beta=244)
 
-    cv.imshow('composite', composite)
+    update_intermediates(copy, morphed, outline, composite)
+
+    # cv.imshow('composite', composite)
 
     # denoised_red = cv.bilateralFilter(red_equalized, 2 * blur_kernel_int, sigmaColor=sigmaColor, sigmaSpace=sigmaSpace) # cv.blur(blur, (2 * blur_kernel_int, 2 * blur_kernel_int))
 
@@ -226,7 +266,7 @@ def get_new_capture():
     isTrue, frame = capture.read()
     
     if isTrue:
-        cv.imshow('raw capture', constrain_image_to_max_res(frame, capture_max_width, capture_max_height))
+        # ('raw capture', constrain_image_to_max_res(frame, capture_max_width, capture_max_height))
         return frame
         # grayscale = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         # edges = cv.Canny(grayscale, threshold_lower, threshold_upper)
@@ -297,19 +337,19 @@ def update_raw_frame(frame):
 
 def update_camera_capture_label(*args): 
     try: 
-        cv.imshow("raw preprocessed on update", cv_raw_frame)
+        # cv.imshow("raw preprocessed on update", cv_raw_frame)
         processed_frame = process_frame(cv_raw_frame)
         new_image = convert_grayscale_cv_to_tk(processed_frame) if is_output_grayscale else convert_cv_to_tk(processed_frame)
         camera_capture.configure(image=new_image)
         camera_capture.image = new_image 
     except ValueError:
-        pass
+        print("something's wrong")
 
-lower_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_lower)
-lower_entry.grid(column=2, row=1, sticky=(W,E))
+# lower_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_lower)
+# lower_entry.grid(column=2, row=1, sticky=(W,E))
 
-upper_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_upper)
-upper_entry.grid(column=2, row=2, sticky=(W,E))
+# upper_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_upper)
+# upper_entry.grid(column=2, row=2, sticky=(W,E))
 
 
 
@@ -324,24 +364,24 @@ upper_entry.grid(column=2, row=2, sticky=(W,E))
 # def update_lbl(val):
 #   manual['text'] = "Scale at " + val
 
-lower_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-70, to=70, variable=threshold_lower, command=update_lower)
-lower_scale.grid(column=0, row=3, sticky='we')
-lower_scale.set(64)
+# lower_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-70, to=70, variable=threshold_lower, command=update_lower)
+# lower_scale.grid(column=0, row=3, sticky='we')
+# lower_scale.set(64)
 
-upper_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-255, to=255, variable=threshold_upper, command=update_upper)
-upper_scale.grid(column=0, row=4, sticky='we')
-upper_scale.set(250)
+# upper_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-255, to=255, variable=threshold_upper, command=update_upper)
+# upper_scale.grid(column=0, row=4, sticky='we')
+# upper_scale.set(250)
 
 blur_label = ttk.Label(mainframe, width=20, text="blur kernel size")
-blur_label.grid(column=0, row=5, sticky='we')
+blur_label.grid(column=0, row=2, sticky='we')
 blur_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=0, to=60, variable=blur_kernel, command=update_blur)
-blur_scale.grid(column=1, row=5, sticky='we')
+blur_scale.grid(column=1, row=2, sticky='we')
 blur_scale.set(38)
 
 highpass_label = ttk.Label(mainframe, width=20, text="morph kernel size")
-highpass_label.grid(column=0, row=6, sticky='we')
+highpass_label.grid(column=0, row=3, sticky='we')
 highpass_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=0, to=60, variable=highpass_kernel, command=update_highpass)
-highpass_scale.grid(column=1, row=6, sticky='we')
+highpass_scale.grid(column=1, row=3, sticky='we')
 highpass_scale.set(3)
 
 # ttk.Label(mainframe, width=20, text="highpass sigma").grid(column=0, row=6, sticky='we')
@@ -356,12 +396,12 @@ highpass_scale.set(3)
 # spin_box.set(3)
 
 button_load_image = ttk.Button(mainframe, text="Load image from disk", command=handle_load_image_button)
-button_load_image.grid(column=0, row=9, sticky='we')
+button_load_image.grid(column=0, row=6, sticky='we')
 
 # ttk.Label(mainframe, text="background is dark").grid(column=0, row=10, sticky='we')
 background_toggle = ttk.Checkbutton(mainframe, text="background is dark", variable=is_background_dark, onvalue=1, offvalue=0, command=update_camera_capture_label)
-background_toggle.grid(column=0, row=10, sticky='we')
+background_toggle.grid(column=0, row=7, sticky='we')
 
-root.bind("<Destroy>", capture.release)
+# root.bind("<Destroy>", capture.release)
 root.mainloop()
 
