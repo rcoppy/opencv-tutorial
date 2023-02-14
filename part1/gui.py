@@ -7,7 +7,8 @@ import numpy as np
 import cv2 as cv
 from PIL import Image, ImageTk
 
-global blank_buffer, capture, cv_raw_frame
+capture_max_width =  1024
+capture_max_height = 768
 
 blank_buffer = np.zeros((255, 255, 3), dtype='uint8')
 blank_buffer[:] = (128, 23, 200)
@@ -26,6 +27,19 @@ root.rowconfigure(0, weight=1)
 label_image = ImageTk.PhotoImage(
     Image.fromarray(blank_buffer)
 )
+
+def constrain_image_to_max_res(frame, hres, vres):
+    copy = np.copy(frame)
+
+    if copy.shape[1] > hres: 
+        height = copy.shape[0] * (hres / copy.shape[1])
+        copy = cv.resize(copy, (hres, int(height)), cv.INTER_AREA)
+
+    if copy.shape[0] > vres: 
+        width = copy.shape[1] * (vres / copy.shape[0])
+        copy = cv.resize(copy, (int(width), vres), cv.INTER_AREA)
+
+    return copy
 
 def handle_capture_button(*args):
     try: 
@@ -55,7 +69,7 @@ def convert_grayscale_cv_to_tk(frame):
     copy = np.copy(frame)
     cv.cvtColor(copy, cv.COLOR_GRAY2BGR)
 
-    cv.imshow("post converted", copy)
+    # cv.imshow("post converted", copy)
     print("converted back to tk")
 
     return ImageTk.PhotoImage(
@@ -78,13 +92,15 @@ def convert_cv_to_tk(frame):
     )
 
 def process_frame(frame):
-    original = np.copy(frame) 
+    copy = np.copy(frame) 
     kernel = int(float(blur_kernel.get()))
 
-    hp = highpass(frame, 3)
+    copy = constrain_image_to_max_res(copy, capture_max_width, capture_max_height)
+
+    hp = highpass(copy, 3)
     cv.imshow("highpass", hp)
 
-    blur = cv.blur(cv.divide(original, frame), (kernel, kernel))
+    blur = cv.blur(copy, (kernel, kernel))
     
     # grayscale = cv.cvtColor(blur, cv.COLOR_BGR2GRAY)
     # edges = cv.Canny(grayscale, int(float(threshold_lower.get())), int(float(threshold_upper.get())))
@@ -102,7 +118,7 @@ def get_new_capture():
     isTrue, frame = capture.read()
     
     if isTrue:
-        cv.imshow('raw capture', frame)
+        cv.imshow('raw capture', constrain_image_to_max_res(frame, capture_max_width, capture_max_height))
         return frame
         # grayscale = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         # edges = cv.Canny(grayscale, threshold_lower, threshold_upper)
