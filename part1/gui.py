@@ -174,15 +174,21 @@ def process_frame(frame):
     # hp = highpass(blur, 3)
     # hp = cv.cvtColor(hp, cv.COLOR_BGR2GRAY)
 
-    # cv.imshow("highpass", hp)
+    cv.imshow("red_raw", red_raw)
 
     # cv.bilateralFilter
 
-    red_equalized = cv.equalizeHist(lowpass(red_raw))
-    # cv.imshow('equalized', copy)
+    # red_equalized = cv.equalizeHist(lowpass(red_raw))
+    # cv.imshow('equalized', red_equalized)
 
     # red_blurred = cv.blur(red_equalized, (blur_kernel_int, blur_kernel_int))
-    denoised_red = cv.bilateralFilter(red_equalized, blur_kernel_int, sigmaColor=30, sigmaSpace=30) # cv.blur(blur, (2 * blur_kernel_int, 2 * blur_kernel_int))
+    denoised_red = cv.bilateralFilter(red_raw, blur_kernel_int, sigmaColor=30, sigmaSpace=30) # cv.blur(blur, (2 * blur_kernel_int, 2 * blur_kernel_int))
+
+    contrast = int(float(threshold_lower.get()))
+    brightness = int(float(threshold_upper.get()))
+
+    contrasted = cv.convertScaleAbs(denoised_red, alpha=-1, beta=52)
+    # cv.imshow("contrasted", contrasted)
 
     #sigmaColor = 30 # int(float(threshold_lower.get()))
     #sigmaSpace = 30 # int(float(threshold_upper.get()))
@@ -193,45 +199,52 @@ def process_frame(frame):
 
     morph_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (morph_kernel_int, morph_kernel_int))
     
-    morphed = cv.morphologyEx(denoised_red, cv.MORPH_OPEN, morph_kernel)
+    morphed = cv.morphologyEx(contrasted, cv.MORPH_OPEN, morph_kernel)
     morphed = cv.morphologyEx(morphed, cv.MORPH_CLOSE, morph_kernel)
     morphed = cv.dilate(morphed, morph_kernel)
-    morphed = cv.equalizeHist(morphed)
+    morphed = cv.erode(morphed, morph_kernel)
+    #morphed = cv.equalizeHist(morphed)
 
     # contrast = int(float(threshold_lower.get()))
     # brightness = int(float(threshold_upper.get()))
 
-    morphed = cv.convertScaleAbs(morphed, alpha=-1, beta=55)
-    morphed = cv.equalizeHist(morphed)
+    #morphed = cv.convertScaleAbs(morphed, alpha=-1, beta=55)
+    
+    # cv.imshow("contrast denoised", morphed)
+    
+    #morphed = cv.equalizeHist(morphed)
 
     # ret, outline = cv.threshold(morphed, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
-    outline = cv.Canny(lowpass(morphed), 64, 250)
-    outline = cv.dilate(outline, 2*morph_kernel)
-    outline = cv.GaussianBlur(outline, (9, 9), sigmaX=3, sigmaY=3)
+    # outline = cv.Canny(lowpass(morphed), 64, 250)
+    # outline = cv.dilate(outline, 2*morph_kernel)
+    # outline = cv.GaussianBlur(outline, (9, 9), sigmaX=3, sigmaY=3)
 
     # cv.imshow('outline', outline)
     # cv.imshow('morphed', morphed)
     
-    maybe_inverted = morphed if is_background_dark.get() == 0 else cv.bitwise_not(morphed)
-
-    composite = cv.equalizeHist(lowpass(np.uint8(
-        cv.subtract(maybe_inverted, outline) if is_background_dark.get() == 0
-        else cv.add(maybe_inverted, outline)
-        )))
-    composite = cv.convertScaleAbs(composite, alpha=-1, beta=244)
-
-    update_intermediates(copy, morphed, outline, composite)
-
-    # cv.imshow('composite', composite)
+    
 
     # denoised_red = cv.bilateralFilter(red_equalized, 2 * blur_kernel_int, sigmaColor=sigmaColor, sigmaSpace=sigmaSpace) # cv.blur(blur, (2 * blur_kernel_int, 2 * blur_kernel_int))
 
+    maybe_inverted = morphed if is_background_dark.get() == 0 else cv.bitwise_not(morphed)
+
     features = cv.dilate(
         cv.bitwise_not(
-            highpass(composite, 3)
+            highpass(maybe_inverted, 3)
         ), 3 * morph_kernel)
 
-    #ret, features = cv.threshold(features, 0, 255, cv.THRESH_OTSU)
+    ret, features = cv.threshold(features, 0, 255, cv.THRESH_OTSU)
+
+    composite = np.uint8(
+        cv.subtract(maybe_inverted, features) if is_background_dark.get() == 0
+        else cv.add(maybe_inverted, features)
+        )
+    # composite = cv.convertScaleAbs(composite, alpha=-1, beta=244)
+
+    update_intermediates(copy, morphed, features, composite)
+
+    # cv.imshow('composite', composite)
+    # cv.imshow('outline', features)
 
     #features = cv.morphologyEx(features, cv.MORPH_OPEN, morph_kernel)
     #features = cv.morphologyEx(features, cv.MORPH_CLOSE, morph_kernel)
@@ -345,11 +358,11 @@ def update_camera_capture_label(*args):
     except ValueError:
         print("something's wrong")
 
-# lower_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_lower)
-# lower_entry.grid(column=2, row=1, sticky=(W,E))
+lower_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_lower)
+lower_entry.grid(column=2, row=1, sticky=(W,E))
 
-# upper_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_upper)
-# upper_entry.grid(column=2, row=2, sticky=(W,E))
+upper_entry = ttk.Entry(mainframe, width=7, textvariable=threshold_upper)
+upper_entry.grid(column=2, row=2, sticky=(W,E))
 
 
 
@@ -364,13 +377,13 @@ def update_camera_capture_label(*args):
 # def update_lbl(val):
 #   manual['text'] = "Scale at " + val
 
-# lower_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-70, to=70, variable=threshold_lower, command=update_lower)
-# lower_scale.grid(column=0, row=3, sticky='we')
-# lower_scale.set(64)
+lower_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-70, to=70, variable=threshold_lower, command=update_lower)
+lower_scale.grid(column=0, row=8, sticky='we')
+lower_scale.set(-1)
 
-# upper_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-255, to=255, variable=threshold_upper, command=update_upper)
-# upper_scale.grid(column=0, row=4, sticky='we')
-# upper_scale.set(250)
+upper_scale = ttk.Scale(mainframe, orient='horizontal', length=200, from_=-255, to=255, variable=threshold_upper, command=update_upper)
+upper_scale.grid(column=0, row=9, sticky='we')
+upper_scale.set(55)
 
 blur_label = ttk.Label(mainframe, width=20, text="blur kernel size")
 blur_label.grid(column=0, row=2, sticky='we')
