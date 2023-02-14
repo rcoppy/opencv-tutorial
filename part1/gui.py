@@ -178,7 +178,7 @@ def process_frame(frame):
 
     # cv.bilateralFilter
 
-    red_equalized = cv.equalizeHist(red_raw)
+    red_equalized = cv.equalizeHist(lowpass(red_raw))
     # cv.imshow('equalized', copy)
 
     # red_blurred = cv.blur(red_equalized, (blur_kernel_int, blur_kernel_int))
